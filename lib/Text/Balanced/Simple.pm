@@ -3,6 +3,10 @@ package Text::Balanced::Simple;
 use warnings;
 use strict;
 
+use Data::Dumper;
+   $Data::Dumper::Terse = 1;
+   $Data::Dumper::Useqq = 1;
+
 =head1 NAME
 
 Text::Balanced::Simple - Find delimited parts of strings
@@ -25,7 +29,7 @@ our $VERSION = '0.01';
         balance_brackets => 1,                 # default 1
         escape_string => '\\',                 # default \
         prefix => '$',                         # default ''
-        postfix => '!',                        # default ''
+        suffix => '!',                        # default ''
         combine_delimiters => 1,               # default 0
         balance_combined => 1,                 # default 1});
     ...
@@ -76,7 +80,7 @@ If set, the provided string must appear immediately adjacent to the opening
 delimiter in order for the delimiter to count.  If the prefix is a regex, then
 the actual prefix that matched the regex will be returned to the user.
 
-=head3 postfix
+=head3 suffix
 
 Unused by default
 
@@ -103,6 +107,81 @@ escaped.
 
 =cut
 
+sub new {
+    my $class = shift;
+    my $args = shift || {};
+
+    my $defaults = {
+        delimiters => '(',
+        balance_brackets => 1,
+        escape_string => '\\',
+        prefix => '',
+        suffix => '',
+        combine_delimiters => 0,
+        balance_combined => 1,
+    };
+
+    %$args = (%$defaults, %$args);
+
+    bless $args, $class;
+    return $args;
+}
+
+sub parse {
+    my ($self, $string) = @_;
+
+    my @boundaries;
+    my $delim_re = qr/[\Q$self->{delimiters}\E]/;
+
+    while ($string =~ /($delim_re)/g) {
+        my $start_pos = pos $string;
+        my $opening_delim = $1;
+        
+        # undef is the documented special case
+        my $esc = $self->{escape_string} // $opening_delim;
+
+        my $end_pos;
+        while ($string =~ /($delim_re)/g) {
+            $end_pos = pos $string;
+
+            # -1 is the delimiter itself. Two esc or no esc = ending delim.
+            last if  substr($string, $end_pos-2, 1) ne $esc
+                 || (substr($string, $end_pos-2, 1) eq $esc
+                   && substr($string, $end_pos-3, 1) eq $esc)
+        }
+        my $closing_delim = $1;
+
+        push @boundaries, [ $opening_delim, $start_pos, $end_pos,
+            $closing_delim, $esc ];
+    }
+
+    my $pos = 0;
+    my @sections;
+    for my $delimited (@boundaries) {
+        my ($open, $start, $end, $close, $esc) = @$delimited;
+
+        my $len = $end - $start;
+
+        my $pre = substr $string, $pos, ($start-1)-$pos;
+        my $d   = substr $string, $start-1, $len;
+
+        push @sections, { text => $pre } if $pre;
+
+        $d =~ s/^\Q$open//;
+        $d =~ s/\Q$close\E$//;
+        $d =~ s/\Q$esc$close\E/$close/g;
+        $d =~ s/\Q$esc$esc\E/$esc/g;
+
+        push @sections, {
+            text => $d,
+            delimiters => [ $open, $close ],
+        };
+
+        $pos = $end;
+    }
+
+    return \@sections;
+}
 
 =head1 AUTHOR
 
