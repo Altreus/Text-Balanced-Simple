@@ -180,6 +180,12 @@ sub parse {
         $pos = $end;
     }
 
+    if ($pos != length $string) {
+        push @sections, {
+            text => substr $string, $pos
+        };
+    }
+
     return \@sections;
 }
 
